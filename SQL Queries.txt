@@ -1,0 +1,415 @@
+1. List all townhouses sold in the suburb Annandale in 2016:
+
+# suburb = 'Annadale' and type = 'townhouse' and dateclose = '2016' and type = 'sell'
+
+SELECT S.pid, S.unitno
+FROM SHAREDPROPERTY S, PROPERTY P, SHAREDLISTING L 
+WHERE S.pid = P.pid and S.pid = L.pid and S.unitno = L.unitno AND P.suburb = 'Annandale' AND S.proptype = 'Townhouse' and L.type = 'sell' and L.dateclose BETWEEN '2016/1/1' AND '2016/12/31'
+
+# LIKE '2016-%'
+# BETWEEN 2016/1/1 AND 2016/12/31
+
+2. Find the suburbs that have not had any sales since 2017 
+
+SELECT DISTINCT X.suburb
+FROM PROPERTY X
+WHERE NOT EXISTS
+	(SELECT *
+	FROM PROPERTY P, LISTING L, SHAREDLISTING S
+	WHERE P.pid = L.pid and P.pid = S.pid and P.suburb = X.suburb and (L.dateclose > '2017/12/31' OR S.dateclose > '2017/12/31')
+)
+
+ANS:
+
+SELECT DISTINCT X.suburb
+FROM PROPERTY X
+WHERE NOT EXISTS
+	(SELECT *
+	FROM PROPERTY P, 
+     	(SELECT NULL AS unitno, pid, agent, datelisted, dateclose, type, price
+		FROM LISTING
+		UNION
+		SELECT *
+		FROM SHAREDLISTING) AS L
+	WHERE P.pid = L.pid AND P.suburb = X.suburb and (L.dateclose > '2017/12/31')
+)
+
+
+3. Find the total number of apartments available for rent on Parramatta Road
+
+SELECT COUNT(*)
+FROM SHAREDPROPERTY S, SHAREDLISTING L, PROPERTY P
+WHERE S.unitno = L.unitno and S.pid = L.pid AND P.pid = S.pid AND P.stname = 'Parramatta' AND P.sttype = 'Road' and L.type = 'rent' AND S.proptype = 'Apartment' and L.dateclose is NULL
+
+4. Which street in the suburb Camperdown has the highest average rent
+
+SELECT stname
+FROM PROPERTY P, RENTS R
+WHERE P.suburb = 'Camperdown' AND P.pid = R.pid
+GROUP BY stname
+HAVING MAX(AVG(rent))
+
+ANS:
+
+SELECT stname
+FROM PROPERTY P, 
+	(SELECT *
+	FROM LISTING
+	WHERE type = 'rent'
+	UNION
+	SELECT pid, agent, sdatelisted, dateclose, type, price
+	FROM SHAREDLISTING
+	WHERE type = 'rent') AS R
+WHERE P.suburb = 'Camperdown' AND P.pid = R.pid
+GROUP BY stname
+HAVING AVG(price) >= ALL
+	(SELECT AVG(price)
+	FROM PROPERTY P, 
+	(SELECT *
+	FROM LISTING
+	WHERE type = 'rent'
+	UNION
+	SELECT pid, agent, sdatelisted, dateclose, type, price
+	FROM SHAREDLISTING
+	WHERE type = 'rent') AS R
+	WHERE P.suburb = 'Camperdown' AND P.pid = R.pid
+	GROUP BY stname)
+	
+5. What is the total value of properties sold by Poh Ling from Trusted Real Estate since 2014
+
+SELECT sum(price)
+FROM LISTINGSALL L 
+WHERE L.type = 'sell' AND dateclose > '2013-12-31' AND agent = 
+	(SELECT A.agentlicense
+	FROM AGENT A
+	WHERE A.name = 'Poh Ling')
+
+ANS:
+
+SELECT SUM(price) AS TOTAL_VALUE
+FROM (SELECT *
+	FROM LISTING
+	UNION
+	SELECT pid, agent, sdatelisted, dateclose, type, price
+	FROM SHAREDLISTING) AS ALL_LISTINGS 
+WHERE type = 'sell' AND dateclose > '2013-12-31' AND agent = 
+	(SELECT A.agentlicense
+	FROM AGENT A
+	WHERE A.name = 'Poh Ling')
+
+OLD:
+	
+SELECT sum(price)
+FROM LISTING L
+WHERE L.agent = 
+	(SELECT agentlicense
+	FROM AGENT A
+	WHERE A.name = 'Poh Ling'
+	AND
+	L.date >= '2014'
+
+# FROM LISTING AND SHAREDLISTING.
+	
+6. Which suburb’s properties have always been sold in less than 4 weeks
+
+SELECT X.suburb
+FROM PROPERTY X
+WHERE NOT EXISTS
+	(SELECT *
+	FROM PROPERTY P, LISTINGS L
+	WHERE P.pid = X.pid AND P.pid = L.pid AND DATEDIFF(dateclose, datelisted) > 28)
+
+ANS:
+
+SELECT X.suburb
+FROM PROPERTY X
+WHERE NOT EXISTS
+	(SELECT *
+	FROM PROPERTY P, (SELECT *
+		FROM LISTING
+		UNION
+		SELECT pid, agent, sdatelisted, dateclose, type, price
+		FROM SHAREDLISTING) AS L
+	WHERE P.pid = L.pid AND P.suburb = X.suburb AND DATEDIFF(dateclose, datelisted) > 28)
+
+7. What is the average number of car spaces available for houses on Pyrmont Bridge Road
+
+SELECT AVG(carspaces) 
+FROM PROPERTY P
+WHERE P.stname = 'Pyrmont Bridge' AND P.sttype = 'Road' AND P.pid NOT IN
+	(SELECT S.pid
+	FROM SHAREDPROPERTY S)
+
+# 8. Which suburb(s) has had the highest increase in average rent between 2014 and 2016
+
+SELECT suburb
+FROM PROPERTY P, SHAREDLISTING S, SHAREDPROPERTY D
+WHERE P.pid 
+GROUP BY suburb
+HAVING AVG(rent)
+
+# FIND AVERAGE RENT IN 2014:
+SELECT suburb, AVG(price) AS Price
+FROM PROPERTY P, RENTS R
+WHERE R.pid = P.pid AND dateclose LIKE '2014-%'
+GROUP BY suburb
+
+# FIND AVERAGE RENT IN 2016:
+SELECT suburb, AVG(price) As Price
+FROM PROPERTY P, RENTS R
+WHERE R.pid = P.pid AND dateclose LIKE '2016-%'
+GROUP BY suburb
+####
+
+SELECT suburb, (date2.price - date1.price)
+FROM date2, date1
+WHERE date2.suburb = date1.suburb
+
+# ANS:
+
+SELECT date1.suburb
+FROM (SELECT suburb, AVG(price) As Price
+	FROM PROPERTY P, RENTS R
+	WHERE R.pid = P.pid AND datelisted LIKE '2016-%'
+	GROUP BY suburb) AS date2, 
+		(SELECT suburb, AVG(price) AS Price
+		FROM PROPERTY P, RENTS R
+		WHERE R.pid = P.pid AND datelisted LIKE '2014-%'
+		GROUP BY suburb) AS date1
+WHERE date2.suburb = date1.suburb AND (date2.Price - date1.Price) >= ALL
+	(SELECT (date2.Price - date1.Price) AS Increase
+	FROM (SELECT suburb, AVG(price) As Price
+		FROM PROPERTY P, RENTS R
+		WHERE R.pid = P.pid AND datelisted LIKE '2016-%'
+		GROUP BY suburb) AS date2, 
+		(SELECT suburb, AVG(price) AS Price
+		FROM PROPERTY P, RENTS R
+		WHERE R.pid = P.pid AND datelisted LIKE '2014-%'
+		GROUP BY suburb) AS date1
+	WHERE date2.suburb = date1.suburb)
+
+INCORRECT ANSWER:
+
+SELECT date1.suburb
+FROM (SELECT suburb, AVG(price) As Price
+	FROM PROPERTY P, RENTS R
+	WHERE R.pid = P.pid AND dateclose LIKE '2016-%'
+	GROUP BY suburb) AS date2, 
+	(SELECT suburb, AVG(price) AS Price
+	FROM PROPERTY P, RENTS R
+	WHERE R.pid = P.pid AND dateclose LIKE '2014-%'
+	GROUP BY suburb) AS date1
+WHERE date2.suburb = date1.suburb AND (date2.Price - date1.Price) = MAX(date2.Price - date1.Price)
+	
+FINAL ANSWER:
+	
+SELECT date1.suburb
+FROM (SELECT suburb, AVG(price) As Price
+	FROM PROPERTY P, 
+			(SELECT *
+			FROM LISTING
+			WHERE type = 'rent'
+			UNION
+			SELECT pid, agent, sdatelisted, dateclose, type, price
+			FROM SHAREDLISTING
+			WHERE type = 'rent') AS R
+	WHERE R.pid = P.pid AND datelisted LIKE '2016-%'
+	GROUP BY suburb) AS date2, 
+		(SELECT suburb, AVG(price) AS Price
+		FROM PROPERTY P,
+		(SELECT *
+			FROM LISTING
+			WHERE type = 'rent'
+			UNION
+			SELECT pid, agent, sdatelisted, dateclose, type, price
+			FROM SHAREDLISTING
+			WHERE type = 'rent') AS R
+		WHERE R.pid = P.pid AND datelisted LIKE '2014-%'
+		GROUP BY suburb) AS date1
+WHERE date2.suburb = date1.suburb AND (date2.Price - date1.Price) >= ALL
+	(SELECT (date2.Price - date1.Price) AS Increase
+	FROM (SELECT suburb, AVG(price) As Price
+		FROM PROPERTY P, 
+			(SELECT *
+			FROM LISTING
+			WHERE type = 'rent'
+			UNION
+			SELECT pid, agent, sdatelisted, dateclose, type, price
+			FROM SHAREDLISTING
+			WHERE type = 'rent') AS R
+		WHERE R.pid = P.pid AND datelisted LIKE '2016-%'
+		GROUP BY suburb) AS date2, 
+		(SELECT suburb, AVG(price) AS Price
+		FROM PROPERTY P, 
+			(SELECT *
+			FROM LISTING
+			WHERE type = 'rent'
+			UNION
+			SELECT pid, agent, sdatelisted, dateclose, type, price
+			FROM SHAREDLISTING
+			WHERE type = 'rent') AS R
+		WHERE R.pid = P.pid AND datelisted LIKE '2014-%'
+		GROUP BY suburb) AS date1
+	WHERE date2.suburb = date1.suburb)
+
+CHALLENGE QUERIES (AT LEAST TWO):
+1. List the properties that have been sold by real estate agencies that are located in the same suburb as the property 
+
+SELECT L.unitno, L.pid
+FROM PROPERTY P, BRANCH B, AGENT A,
+	(SELECT NULL AS unitno, pid, agent, datelisted, dateclose, type, price
+	FROM LISTING
+	WHERE type='sell'
+	UNION
+	SELECT *
+	FROM SHAREDLISTING
+	WHERE type='sell') AS L
+WHERE P.pid = L.pid AND B.agency = A.agency AND A.agentlicense = L.agent AND B.brsuburb = P.suburb
+
+
+2. Who is the most successful real estate agent in 2018. (Hint: who has sold and rented properties of the greatest value)
+
+# PROPERTIES SOLD OR RENTED IN 2018:
+SELECT *
+FROM AGENT
+WHERE agentlicense IN (
+	SELECT agent
+	FROM (SELECT agent, SUM(price) AS Total
+		FROM (SELECT *
+		FROM LISTING
+		WHERE dateclose LIKE '2018-%'
+		UNION
+		SELECT pid, agent, sdatelisted, dateclose, type, price
+		FROM SHAREDLISTING
+		WHERE dateclose LIKE '2018-%') AS LISTINGS
+		GROUP BY agent) AS PROFILES
+	WHERE Total >= 
+		(SELECT MAX(Total)
+		FROM 
+		(SELECT agent, SUM(price) AS Total
+		FROM (SELECT *
+		FROM LISTING
+		WHERE dateclose LIKE '2018-%'
+		UNION
+		SELECT pid, agent, sdatelisted, dateclose, type, price
+		FROM SHAREDLISTING
+		WHERE dateclose LIKE '2018-%') AS LISTINGS
+		GROUP BY agent) AS PROFILES))
+	
+
+3. List the agencies that have property listings in every suburb
+
+SELECT agency
+FROM 
+
+# Agents and Listings:
+SELECT agency, suburb
+FROM PROPERTY P, AGENT A, (SELECT *
+	FROM LISTING
+	UNION
+	SELECT pid, agent, sdatelisted, dateclose, type, price
+	FROM SHAREDLISTING) AS L
+WHERE P.pid = L.pid AND A.agentlicense = L.agent
+GROUP BY agency
+HAVING COUNT(suburb) =
+	(SELECT COUNT(DISTINCT(suburb))
+	FROM PROPERTY)
+
+# ANS
+SELECT *
+FROM AGENCY
+WHERE agencylicense IN
+	(SELECT agency
+	FROM PROPERTY P, AGENT A, (SELECT *
+		FROM LISTING
+		UNION
+		SELECT pid, agent, sdatelisted, dateclose, type, price
+		FROM SHAREDLISTING) AS L
+	WHERE P.pid = L.pid AND A.agentlicense = L.agent
+	GROUP BY agency
+	HAVING COUNT(DISTINCT(suburb)) =
+		(SELECT COUNT(DISTINCT(suburb))
+		FROM PROPERTY))
+
+# SELECT ALL SUBURBS:
+
+SELECT COUNT(DISTINCT(suburb))
+FROM PROPERTY
+
+
+ 
+4. Which real estate agency (or agencies) has the most number of houses available for rent on 24 April 2018
+
+SELECT agencyname
+FROM AGENCY
+WHERE agentlicense in (
+	SELECT agentlicense
+	FROM AGENCY, 
+
+SELECT *
+FROM AGENCY
+WHERE agencylicense IN (
+	SELECT agency
+	FROM AGENT, 
+		(SELECT *
+		FROM LISTING
+		WHERE type = 'rent'
+		UNION
+		SELECT pid, agent, sdatelisted, dateclose, type, price
+		FROM SHAREDLISTING
+		WHERE type = 'rent') AS RENT
+	WHERE agentlicense = agent and datelisted <= '2018-4-24' and (dateclose > '2018-4-24' OR dateclose is NULL)
+	GROUP BY agency
+	HAVING COUNT(*) >= ALL
+		(SELECT COUNT(*)
+		FROM AGENT, 
+			(SELECT *
+			FROM LISTING
+			WHERE type = 'rent'
+			UNION
+			SELECT pid, agent, sdatelisted, dateclose, type, price
+			FROM SHAREDLISTING
+			WHERE type = 'rent') AS RENT
+		WHERE agentlicense = agent and datelisted <= '2018-4-24' and (dateclose > '2018-4-24' OR dateclose is NULL)
+		GROUP BY agency)
+)
+
+VIEWS:
+
+Listing and SharedListing:
+
+SELECT *
+FROM LISTING L
+INNER JOIN SHAREDLISTING ON LISTING.pid = SHAREDLISTING.pid
+
+All LISTINGS:
+
+SELECT *
+FROM LISTING
+UNION
+SELECT pid, agent, sdatelisted, dateclose, type, price
+FROM SHAREDLISTING
+
+ALL LISTINGS (FULL UNION):
+
+SELECT NULL AS unitno, pid, agent, datelisted, dateclose, type, price
+FROM LISTING
+UNION
+SELECT *
+FROM SHAREDLISTING
+
+ALL RENTS:
+
+SELECT *
+FROM LISTING
+WHERE type = 'rent'
+UNION
+SELECT pid, agent, sdatelisted, dateclose, type, price
+FROM SHAREDLISTING
+WHERE type = 'rent'
+
+VIEWS :
+
+PROPERTIES & LISTINGS:
+CREATE ALGORITHM = UNDEFINED VIEW `PROPERTYLISTINGS` (pid, stno, stname, sttype, suburb, state, postcode, carspaces, unitno, agent, datelisted, dateclose, type, price) 
+AS SELECT * FROM PROPERTY, ALLLISTINGS WHERE PROPERTY.pid = ALLLISTINGS.pid
